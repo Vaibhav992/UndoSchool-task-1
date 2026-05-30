@@ -1,0 +1,22 @@
+# Environment
+.env
+.env.local
+
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jetro
+.jetro/

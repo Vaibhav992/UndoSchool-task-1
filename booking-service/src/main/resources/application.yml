@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: booking-service
+  datasource:
+    url: jdbc:postgresql://ep-green-rice-aj99b62f-pooler.c-3.us-east-2.aws.neon.tech/neondb?sslmode=require
+    username: neondb_owner
+    password: npg_RdhwKlZiD2V9
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-key-to-at-least-256-bits-for-production-use-now}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
