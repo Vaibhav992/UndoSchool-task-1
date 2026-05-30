@@ -1,0 +1,733 @@
+{
+  "info": {
+    "name": "UndoSchool Booking Service",
+    "description": "Global Class Offering Booking System\n\nFlow:\n1. Project setup & startup\n2. Auth (register/login)\n3. Create course + offering\n4. Add sessions\n5. View offerings (teacher + parent)\n6. Book offering\n7. Conflict detection (duplicate + time overlap)\n8. Timezone conversion (X-Timezone header)\n9. Concurrent booking (use Collection Runner — see folder notes)\n\nStart server:\n  cd booking-service && mvn spring-boot:run\n\nRoles: TEACHER | PARENT\nOfferings must be PUBLISHED with sessions before parents can book.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "teacherToken", "value": "" },
+    { "key": "parentToken", "value": "" },
+    { "key": "courseId", "value": "" },
+    { "key": "offeringId", "value": "" },
+    { "key": "offering2Id", "value": "" },
+    { "key": "teacherEmail", "value": "teacher@example.com" },
+    { "key": "parentEmail", "value": "parent@example.com" },
+    { "key": "password", "value": "password123" }
+  ],
+  "item": [
+    {
+      "name": "1. Project Setup & Startup",
+      "description": "Verify the Spring Boot app is running before other requests.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Server is UP', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Authentication",
+      "description": "Register teacher & parent, login, fetch profiles. Tokens saved to collection variables.",
+      "item": [
+        {
+          "name": "Register Teacher",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{teacherEmail}}\",\n  \"password\": \"{{password}}\",\n  \"role\": \"TEACHER\",\n  \"timezone\": \"America/New_York\",\n  \"displayName\": \"Jane Teacher\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/register"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  pm.collectionVariables.set('teacherToken', json.accessToken);",
+                  "}",
+                  "pm.test('Registered or already exists', () => {",
+                  "  pm.expect([201, 400]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register Parent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{parentEmail}}\",\n  \"password\": \"{{password}}\",\n  \"role\": \"PARENT\",\n  \"timezone\": \"Europe/London\",\n  \"displayName\": \"John Parent\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/register"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('parentToken', pm.response.json().accessToken);",
+                  "}",
+                  "pm.test('Registered or already exists', () => {",
+                  "  pm.expect([201, 400]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Teacher",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{teacherEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('teacherToken', pm.response.json().accessToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Parent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{parentEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('parentToken', pm.response.json().accessToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Teacher Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+            "url": "{{baseUrl}}/api/v1/users/me/profile"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Profile OK', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().role).to.eql('TEACHER');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Parent Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{parentToken}}" }],
+            "url": "{{baseUrl}}/api/v1/users/me/profile"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Profile OK', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().role).to.eql('PARENT');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Profile Without Auth (expect 403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/users/me/profile"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Forbidden without token', () => pm.response.to.have.status(403));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Creating Offerings",
+      "description": "Teacher creates a course, then a PUBLISHED offering. Status must be PUBLISHED for parents to see/book it.",
+      "item": [
+        {
+          "name": "Create Course",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Math 101\",\n  \"description\": \"Introduction to mathematics\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/courses"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Course created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('courseId', pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Offering (PUBLISHED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"courseId\": \"{{courseId}}\",\n  \"name\": \"Saturday Math Batch\",\n  \"teacherTimezone\": \"America/New_York\",\n  \"status\": \"PUBLISHED\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Offering created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('offeringId', json.id);",
+                  "pm.expect(json.status).to.eql('PUBLISHED');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Draft Offering (not bookable)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"courseId\": \"{{courseId}}\",\n  \"name\": \"Draft Batch\",\n  \"teacherTimezone\": \"America/New_York\",\n  \"status\": \"DRAFT\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Draft offering created', () => pm.response.to.have.status(201));",
+                  "pm.expect(pm.response.json().status).to.eql('DRAFT');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Parent Access Teacher API (expect 403)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{parentToken}}" }],
+            "url": "{{baseUrl}}/api/v1/teachers/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Parent cannot access teacher routes', () => pm.response.to.have.status(403));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Adding Sessions",
+      "description": "Session times are LOCAL to the offering's teacherTimezone (America/New_York). Stored as UTC internally.",
+      "item": [
+        {
+          "name": "Add Sessions to Main Offering",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessions\": [\n    {\n      \"localStart\": \"2026-06-15T10:00:00\",\n      \"localEnd\": \"2026-06-15T11:00:00\"\n    },\n    {\n      \"localStart\": \"2026-06-22T10:00:00\",\n      \"localEnd\": \"2026-06-22T11:00:00\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/offerings/{{offeringId}}/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Sessions added', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().sessions.length).to.be.at.least(2);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Overlap Offering (for conflict test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"courseId\": \"{{courseId}}\",\n  \"name\": \"Overlap Math Batch\",\n  \"teacherTimezone\": \"America/New_York\",\n  \"status\": \"PUBLISHED\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Overlap offering created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('offering2Id', pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add Overlapping Sessions (10:30–11:30 overlaps 10:00–11:00)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessions\": [\n    {\n      \"localStart\": \"2026-06-15T10:30:00\",\n      \"localEnd\": \"2026-06-15T11:30:00\"\n    }\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/teachers/offerings/{{offering2Id}}/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Overlap sessions added', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Viewing Offerings",
+      "description": "Teacher sees all their offerings. Parent sees only PUBLISHED offerings with sessions.",
+      "item": [
+        {
+          "name": "Teacher — List All Offerings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "X-Timezone", "value": "America/New_York" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/teachers/offerings?upcoming=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "teachers", "offerings"],
+              "query": [{ "key": "upcoming", "value": "false" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Teacher offerings listed', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().length).to.be.at.least(1);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Teacher — List Upcoming Offerings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{teacherToken}}" },
+              { "key": "X-Timezone", "value": "America/New_York" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/teachers/offerings?upcoming=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "teachers", "offerings"],
+              "query": [{ "key": "upcoming", "value": "true" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Upcoming offerings listed', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Parent — List Published Offerings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "Europe/London" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offerings?upcoming=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offerings"],
+              "query": [{ "key": "upcoming", "value": "false" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Parent sees published offerings', () => pm.response.to.have.status(200));",
+                  "const offerings = pm.response.json();",
+                  "pm.expect(offerings.every(o => o.status === 'PUBLISHED')).to.be.true;"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Booking an Offering",
+      "description": "Parent books the entire offering (all sessions). No request body required.",
+      "item": [
+        {
+          "name": "Book Main Offering",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "Europe/London" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings/{{offeringId}}/bookings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Booking created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.expect(json.status).to.eql('CONFIRMED');",
+                  "pm.expect(json.sessions.length).to.be.at.least(1);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List My Bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "Europe/London" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/parents/me/bookings?upcoming=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "parents", "me", "bookings"],
+              "query": [{ "key": "upcoming", "value": "true" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bookings listed', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().length).to.be.at.least(1);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Conflict Detection",
+      "description": "Tests:\n- ALREADY_BOOKED (409): same parent books same offering twice\n- TIME_CONFLICT (409): parent books overlapping offering\n- OFFERING_NOT_BOOKABLE (422): draft offering",
+      "item": [
+        {
+          "name": "Duplicate Booking (expect 409 ALREADY_BOOKED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings/{{offeringId}}/bookings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Duplicate rejected', () => pm.response.to.have.status(409));",
+                  "pm.expect(pm.response.json().error).to.eql('ALREADY_BOOKED');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Time Overlap Booking (expect 409 TIME_CONFLICT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings/{{offering2Id}}/bookings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Overlap rejected', () => pm.response.to.have.status(409));",
+                  "pm.expect(pm.response.json().error).to.eql('TIME_CONFLICT');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Timezone Conversion",
+      "description": "Same offering, different X-Timezone headers. Compare startAtUtc (same) vs startAtLocal / displayTimezone (different).\n\nSession fields in response:\n- startAtUtc / endAtUtc — always UTC\n- startAtLocal / endAtLocal — converted to display zone\n- displayTimezone — zone used for conversion",
+      "item": [
+        {
+          "name": "View Offerings — X-Timezone: Asia/Kolkata",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "Asia/Kolkata" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('OK', () => pm.response.to.have.status(200));",
+                  "const sessions = pm.response.json()[0]?.sessions || [];",
+                  "if (sessions.length) {",
+                  "  pm.collectionVariables.set('utcStart', sessions[0].startAtUtc);",
+                  "  pm.collectionVariables.set('kolkataLocal', sessions[0].startAtLocal);",
+                  "  pm.expect(sessions[0].displayTimezone).to.eql('Asia/Kolkata');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "View Offerings — X-Timezone: America/Los_Angeles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "America/Los_Angeles" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('OK', () => pm.response.to.have.status(200));",
+                  "const sessions = pm.response.json()[0]?.sessions || [];",
+                  "if (sessions.length) {",
+                  "  pm.test('UTC unchanged across timezones', () => {",
+                  "    pm.expect(sessions[0].startAtUtc).to.eql(pm.collectionVariables.get('utcStart'));",
+                  "  });",
+                  "  pm.test('Local time differs from Kolkata', () => {",
+                  "    pm.expect(sessions[0].startAtLocal).to.not.eql(pm.collectionVariables.get('kolkataLocal'));",
+                  "  });",
+                  "  pm.expect(sessions[0].displayTimezone).to.eql('America/Los_Angeles');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "View Bookings — X-Timezone: Asia/Kolkata",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" },
+              { "key": "X-Timezone", "value": "Asia/Kolkata" }
+            ],
+            "url": "{{baseUrl}}/api/v1/parents/me/bookings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bookings with timezone', () => pm.response.to.have.status(200));",
+                  "const booking = pm.response.json()[0];",
+                  "if (booking) pm.expect(booking.displayTimezone).to.eql('Asia/Kolkata');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Concurrent Booking (manual)",
+      "description": "The API uses pessimistic row lock (findByIdForUpdate on parent) + PostgreSQL EXCLUDE constraint for race safety.\n\nPostman cannot fire true parallel requests natively. To test concurrency:\n\nOption A — Postman Collection Runner:\n  1. Reset: delete parent bookings in DB or use a fresh parent account\n  2. Run folder '9. Concurrent Booking' with 2 iterations, delay 0ms\n  3. Expect: one 201 CREATED, one 409 (ALREADY_BOOKED or TIME_CONFLICT)\n\nOption B — PowerShell script (test-api.ps1 in repo) already validates this.\n\nOption C — Two terminals, same parent token, fire two book requests simultaneously on the SAME offeringId.",
+      "item": [
+        {
+          "name": "Concurrent — Book Same Offering (run 2x in Runner)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{parentToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/offerings/{{offeringId}}/bookings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Either created or conflict', () => {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 409) {",
+                  "  pm.expect(['ALREADY_BOOKED','TIME_CONFLICT']).to.include(pm.response.json().error);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
