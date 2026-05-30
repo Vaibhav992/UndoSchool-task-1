@@ -2,9 +2,9 @@ spring:
   application:
     name: booking-service
   datasource:
-    url: jdbc:postgresql://ep-green-rice-aj99b62f-pooler.c-3.us-east-2.aws.neon.tech/neondb?sslmode=require
-    username: neondb_owner
-    password: npg_RdhwKlZiD2V9
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:

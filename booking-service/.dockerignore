@@ -1,0 +1,11 @@
+target/
+.git/
+.idea/
+*.iml
+.env
+.env.*
+!.env.example
+postman-collections.json
+test-api.ps1
+README.md
+img/

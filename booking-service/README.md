@@ -652,6 +652,62 @@ curl.exe -X POST http://localhost:8080/api/v1/auth/register `
 
 ---
 
+## Deploy on Render (Docker Hub)
+
+Image: **`docker.io/vaibhav990/booking-service:latest`**
+
+### Step 1 — Build and push to Docker Hub
+
+```powershell
+cd booking-service
+docker login
+.\docker-build-push.ps1
+```
+
+Or manually:
+
+```powershell
+docker build -t vaibhav990/booking-service:latest .
+docker push vaibhav990/booking-service:latest
+```
+
+### Step 2 — Create Render Web Service
+
+1. [Render Dashboard](https://dashboard.render.com) → **New +** → **Web Service**
+2. Choose **Deploy an existing image from a registry**
+3. **Image URL:** `docker.io/vaibhav990/booking-service:latest`
+4. **Health Check Path:** `/actuator/health`
+
+### Step 3 — Environment variables (Render → Environment)
+
+```env
+SPRING_DATASOURCE_URL=jdbc:postgresql://<neon-host>/neondb?sslmode=require
+SPRING_DATASOURCE_USERNAME=neondb_owner
+SPRING_DATASOURCE_PASSWORD=<your-neon-password>
+JWT_SECRET=<long-random-secret-32-chars-min>
+JWT_EXPIRATION_MS=86400000
+```
+
+Do not set `PORT` — Render injects it automatically.
+
+### Step 4 — Redeploy after code changes
+
+Every time you change code:
+
+```powershell
+.\docker-build-push.ps1
+```
+
+Then in Render: **Manual Deploy** → **Deploy latest image** (or enable auto-deploy if connected).
+
+### Verify
+
+```
+https://<your-service>.onrender.com/actuator/health
+```
+
+---
+
 ## Resources
 
 | Resource | Location |

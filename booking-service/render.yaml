@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: booking-service
+    runtime: docker
+    image:
+      url: docker.io/vaibhav990/booking-service:latest
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRATION_MS
+        value: "86400000"
